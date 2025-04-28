@@ -1,14 +1,13 @@
 # Troubleshooting: `internal.example.com` – “host not found”
 
 _A one-person lab that recreates a DNS outage, tests four hypotheses, and
-finally restores service.  Screenshot placeholders are HTML comments:
-replace each with the real PNG in `/screenshots/`._
+finally restores service. 
 
 ---
 
 ## 0. Lab Environment
 
- Distro          
+        
 |
  Ubuntu 24.04 LTS inside 
 **
@@ -166,5 +165,28 @@ curl -I http://internal.example.com    # HTTP/1.0 200 OK
 
 
 _Result_: Service restored – **root cause resolved**
+
+
+
+# Task Summary Table – Causes, Checks, and Fixes
+
+**this is a summary of what have been done with some extra potential issues and their fixes**
+
+| Stage / ID | Possible Cause | How to Confirm (key commands) | Fix / Remediation |
+|------------|----------------|-------------------------------|-------------------|
+| **0** | _Problem reproduced_ | `ping -c2 internal.example.com` <br> `curl -I http://internal.example.com` | (baseline failure) |
+| **1 A** | Web service down | `sudo ss -lntp \| grep ':80'` <br> `curl -I http://127.0.0.1` | `sudo systemctl start nginx` <br> or `python3 -m http.server 80 &` |
+| **2 B** | Host firewall blocking 80/443 | `sudo iptables -L -n \| grep ':80'` <br> `sudo ufw status` | `sudo ufw allow 80/tcp 443/tcp` <br> `sudo ufw reload` |
+| **3 C** | Routing / ACL problem | `tracepath -p 80 127.0.0.1` <br> `nc -vz 127.0.0.1 80` | Add route: `sudo ip route add <subnet> via <gateway>` <br> or open ACL |
+| **4 D-1** | DNS record missing / wrong | `dig internal.example.com` <br> `dig @8.8.8.8 internal.example.com` | Add A-record and `rndc reload` |
+| **4 D-2** | DNS server down or port-53 blocked | `systemctl status named` or `bind9` <br> `sudo ss -lunp \| grep ':53'` | `sudo systemctl restart named` <br> `sudo ufw allow 53/udp` |
+| **4 D-3** | Client points to wrong resolver | `cat /etc/resolv.conf` | `echo "nameserver 10.0.0.53" | sudo tee /etc/resolv.conf` |
+| **4 D-4** | Stale / poisoned cache | `systemd-resolve --statistics` | `sudo systemd-resolve --flush-caches` |
+| **5 (Wrong Fix)** | Tried different upstream DNS; still fails | `echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf` <br> `dig internal.example.com` | Realize it didn’t help; revert or move to next hypothesis |
+| **6 (Actual Fix)** | Temporary override via `/etc/hosts` | `echo "127.0.0.1 internal.example.com" | sudo tee -a /etc/hosts` <br> `getent hosts internal.example.com` <br> `curl -I http://internal.example.com` | (Above commands _are_ the fix) |
+| **Extra** | Service bound only to 127.0.0.1 | `ss -lntp | grep ':80'` shows only `127.0.0.1:80` | Reconfigure: nginx `listen 0.0.0.0:80;` then `sudo nginx -s reload` |
+| **Extra** | Host firewall blocks 53 (DNS) | `sudo iptables -L -n | grep ':53'` | `sudo ufw allow 53/udp` |
+| **Extra** | TLS misconfiguration (443) | `openssl s_client -connect internal.example.com:443` | Install / correct certificate, restart web server |
+| **Extra** | Reverse proxy up but backend down | `curl -I http://localhost` returns 502 <br> `systemctl status backend.service` | Restart backend, fix upstream block in proxy config |
 
 
